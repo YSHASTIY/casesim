@@ -221,6 +221,12 @@ document.addEventListener('DOMContentLoaded', function () {
         var openingSection = document.querySelector('.opening');
         if (openingSection) openingSection.classList.add('is-spinning');
 
+        // Прячем кнопки открытия («Открыть кейс» / «Быстрое открытие») на время
+        // прокрутки — во время анимации видна только лента рулетки. Кнопки
+        // возвращаются в resetToNormal после показа результата.
+        var fastOpenWrapper = document.querySelector('.fast-open-wrapper');
+        if (fastOpenWrapper) fastOpenWrapper.style.display = 'none';
+
         // Профиль игрока и стартовый баланс дня фиксируются ДО списания,
         // чтобы кап считался от реального баланса на начало дня.
         var userId = Profit ? Profit.getUserId() : 'anon';
@@ -311,14 +317,14 @@ document.addEventListener('DOMContentLoaded', function () {
             unsoldCnt++;
             var resDiv = document.createElement('div');
             resDiv.className = 'result-item-card';
-            resDiv.style.borderColor = win.rarityColor || tierColor(win.tier);
-            resDiv.style.boxShadow = 'inset 0 3px 0 ' + (win.rarityColor || tierColor(win.tier));
+            var rc = win.rarityColor || tierColor(win.tier);
+            resDiv.style.borderColor = rc;
+            resDiv.style.setProperty('--rarity', rc);
             resDiv.innerHTML =
               '<img src="' + win.image + '" alt="" onerror="this.style.visibility=\'hidden\'">' +
               '<h4>' + win.name + '</h4>' +
               '<small class="wear">' + (win.wearRu || win.wear) + '</small>' +
               '<p><b>' + money(win.price) + '</b></p>' +
-              '<a class="button ghost market-link" href="' + win.marketUrl + '" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square"></i> На Market.CSGO</a>' +
               '<button class="button ghost sell-single" data-id="' + win.id + '">Продать</button>';
             grid.appendChild(resDiv);
           });
@@ -379,6 +385,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         function resetToNormal() {
+          if (fastOpenWrapper) fastOpenWrapper.style.display = '';
           spinBtn.style.display = '';
           spinBtn.disabled = false;
           spinBtn.classList.remove('is-fast');
