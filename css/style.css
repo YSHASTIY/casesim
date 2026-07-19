@@ -2999,7 +2999,10 @@ footer div {
   flex-wrap: wrap;
   gap: 15px;
   justify-content: center;
-  margin-bottom: 25px;
+  /* 3 карточки (150px) + 2 промежутка (15px) = 480px — держим по 3 в ряд,
+     чтобы 5 предметов ложились как 3 сверху / 2 снизу, а не в одну линию */
+  max-width: 500px;
+  margin: 0 auto 25px;
   animation: fadeIn 0.4s ease;
 }
 
@@ -3049,9 +3052,16 @@ footer div {
 
 .results-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   justify-content: center;
+  align-items: center;
   animation: fadeIn 0.4s ease;
+}
+
+.results-actions .button {
+  height: auto;
+  align-self: center;
 }
 
 .results-actions .spin-again {

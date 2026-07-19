@@ -9,39 +9,28 @@
   var data = Catalog.merge(BASE);
   var editing = null; // case object currently in modal
 
-  // ---------- skin pool auto-load (Phase 2) ----------
-  // The full skin catalog ships as data/skins-pool.js -> window.CRATE_SKIN_POOL.
-  // On first admin load we import it into the localStorage pool so ALL skins
-  // (not just the 5 curated cases) appear in the Skins tab and the case picker.
-  // Re-imports when the shipped pool changes (count differs). Idempotent by name.
+  // ---------- skin pool (Phase 2) ----------
+  // The full CS2 catalog ships as data/skins-pool.js -> window.CRATE_SKIN_POOL and
+  // is read DIRECTLY by Catalog.allSkins (it is ~10MB — copying it into
+  // localStorage would blow the quota). So there is nothing to "load": the whole
+  // catalog is available on page load. The button below simply re-renders and
+  // reports counts. Manual JSON imports (Tools tab) still go to localStorage.
   function loadPoolGlobal(silent) {
     var shipped = window.CRATE_SKIN_POOL;
     if (!Array.isArray(shipped) || !shipped.length) {
       if (!silent) toast('Файл пула скинов не найден (data/skins-pool.js)');
       return 0;
     }
-    var added = Catalog.importSkins(shipped);
-    if (added > 0) toast('Загружено новых скинов: ' + added);
-    else if (!silent) toast('Пул уже актуален');
-    return added;
+    if (!silent) toast('Каталог загружен: ' + shipped.length + ' предметов');
+    return shipped.length;
   }
-  function ensurePool() {
-    try {
-      var shipped = window.CRATE_SKIN_POOL || [];
-      var poolCount = Catalog.getPool().length;
-      // import when pool empty OR shipped catalog changed (added skins upstream)
-      if (shipped.length && (poolCount === 0 || shipped.length > poolCount)) {
-        loadPoolGlobal(true);
-      }
-    } catch (e) {}
-  }
+  function ensurePool() { /* shipped catalog is read directly by Catalog.allSkins */ }
   function poolStatus() {
     var el = $('[data-pool-status]'); if (!el) return;
-    var pool = Catalog.getPool().length;
     var shipped = (window.CRATE_SKIN_POOL || []).length;
-    el.textContent = 'В каталоге: ' + pool + ' скинов' +
-      (shipped ? ' (в файле пула: ' + shipped + ')' : '') +
-      ' · всего видно: ' + Catalog.allSkins(BASE).length;
+    var imported = Catalog.getPool().length;
+    el.textContent = 'В каталоге: ' + Catalog.allSkins(BASE).length + ' предметов' +
+      ' (в файле пула: ' + shipped + (imported ? ', импортировано вручную: ' + imported : '') + ')';
   }
 
   // ---------- auth ----------
@@ -232,25 +221,111 @@
     toast('Кейс сохранён'); closeCaseModal(); refresh();
   };
 
-  // ---------- skin picker ----------
+  // ---------- skin picker (with CS:GO-market-style filter panel) ----------
+  // Filters combine like the CS:GO market: checkboxes WITHIN a facet are OR'd,
+  // facets are AND'd together, and everything is AND'd with the free-text search.
+  var CATEGORY_LABELS = {
+    weapon: 'Оружие', knife: 'Ножи', gloves: 'Перчатки', sticker: 'Наклейки',
+    charm: 'Брелоки', patch: 'Нашивки', pin: 'Значки', case: 'Кейсы'
+  };
+  var TIER_LABELS = {
+    milspec: 'Армейское', restricted: 'Запрещённое', classified: 'Засекреченное',
+    covert: 'Тайное', rare: 'Ножи/Перчатки (редкое)'
+  };
+  var CATEGORY_ORDER = ['weapon', 'knife', 'gloves', 'sticker', 'charm', 'patch', 'pin', 'case'];
+  var TIER_ORDER = ['milspec', 'restricted', 'classified', 'covert', 'rare'];
+  var pickerFilters = { category: {}, tier: {}, weapon: {}, stattrak: {} };
+
   $('#addSkinToCaseBtn').onclick = function () { openPicker(); };
   function openPicker() {
-    $('#skinPicker').hidden = false; $('#pickerSearch').value = ''; renderPicker('');
-    $('#pickerSearch').oninput = function () { renderPicker(this.value); };
+    $('#skinPicker').hidden = false;
+    $('#pickerSearch').value = '';
+    pickerFilters = { category: {}, tier: {}, weapon: {}, stattrak: {} };
+    buildPickerFilters();
+    renderPicker();
+    $('#pickerSearch').oninput = function () { renderPicker(); };
   }
   $('#skinPickerClose').onclick = function () { $('#skinPicker').hidden = true; };
-  function renderPicker(q) {
-    q = (q || '').toLowerCase();
-    var all = Catalog.allSkins(BASE).filter(function (s) { return s.name.toLowerCase().indexOf(q) >= 0; }).slice(0, 200);
+  $('#pickerReset').onclick = function () {
+    pickerFilters = { category: {}, tier: {}, weapon: {}, stattrak: {} };
+    $('#pickerSearch').value = '';
+    $$('[data-facet]', $('[data-picker-filters]')).forEach(function (cb) { cb.checked = false; });
+    renderPicker();
+  };
+
+  function anyChecked(map) { return Object.keys(map).some(function (k) { return map[k]; }); }
+
+  // Build the facet checkboxes from the full catalog (weapons list is dynamic).
+  function buildPickerFilters() {
+    var all = Catalog.allSkins(BASE);
+    var weapons = {};
+    all.forEach(function (s) { if (s.weapon) weapons[s.weapon] = 1; });
+    var weaponList = Object.keys(weapons).sort();
+
+    function group(title, facet, entries) {
+      return '<div class="filter-group"><h4>' + title + '</h4>' +
+        '<div class="filter-opts' + (facet === 'weapon' ? ' scroll' : '') + '">' +
+        entries.map(function (e) {
+          return '<label class="filter-opt"><input type="checkbox" data-facet="' + facet +
+            '" value="' + e.val + '">' + e.label + '</label>';
+        }).join('') + '</div></div>';
+    }
+
+    var html = '';
+    html += group('Категория', 'category', CATEGORY_ORDER.map(function (c) {
+      return { val: c, label: CATEGORY_LABELS[c] || c };
+    }));
+    html += group('Редкость', 'tier', TIER_ORDER.map(function (t) {
+      return { val: t, label: TIER_LABELS[t] || t };
+    }));
+    html += group('StatTrak™', 'stattrak', [
+      { val: 'yes', label: 'StatTrak™' }, { val: 'no', label: 'Без StatTrak' }
+    ]);
+    html += group('Оружие (базовый предмет)', 'weapon', weaponList.map(function (w) {
+      return { val: w, label: w };
+    }));
+
+    var box = $('[data-picker-filters]');
+    box.innerHTML = html;
+    $$('[data-facet]', box).forEach(function (cb) {
+      cb.onchange = function () {
+        pickerFilters[cb.dataset.facet][cb.value] = cb.checked;
+        renderPicker();
+      };
+    });
+  }
+
+  function matchesFilters(s, q) {
+    if (q && s.name.toLowerCase().indexOf(q) < 0) return false;
+    var f = pickerFilters;
+    if (anyChecked(f.category) && !f.category[s.category]) return false;
+    if (anyChecked(f.tier) && !f.tier[s.tier]) return false;
+    if (anyChecked(f.weapon) && !f.weapon[s.weapon]) return false;
+    if (anyChecked(f.stattrak)) {
+      var key = s.statTrak ? 'yes' : 'no';
+      if (!f.stattrak[key]) return false;
+    }
+    return true;
+  }
+
+  function renderPicker() {
+    var q = ($('#pickerSearch').value || '').toLowerCase();
+    var matched = Catalog.allSkins(BASE).filter(function (s) { return matchesFilters(s, q); });
+    var all = matched.slice(0, 300);
+    $('[data-picker-count]').textContent = 'Найдено: ' + matched.length +
+      (matched.length > all.length ? ' (показаны первые ' + all.length + ')' : '');
     $('[data-picker-list]').innerHTML = all.map(function (s, i) {
+      var badge = s.statTrak ? '<span class="st-badge">ST</span>' : '';
       return '<div class="picker-item" data-pick="' + i + '"><img src="' + (s.image || '') + '" onerror="this.style.visibility=\'hidden\'">' +
-        '<div><b>' + s.name + '</b><small>' + s.tier + ' · ' + money(Pricing.itemPrice(s)) + '</small></div>' +
+        '<div><b>' + badge + s.name + '</b><small>' + (CATEGORY_LABELS[s.category] || s.category) +
+        ' · ' + s.tier + ' · ' + money(Pricing.itemPrice(s)) + '</small></div>' +
         '<i class="fa-solid fa-plus"></i></div>';
     }).join('') || '<p class="muted">Ничего не найдено.</p>';
     $$('[data-pick]').forEach(function (el) {
       el.onclick = function () {
         var s = all[+el.dataset.pick];
-        if (editing.items.some(function (x) { return x.name === s.name; })) { toast('Уже в кейсе'); return; }
+        var exists = editing.items.some(function (x) { return x.name === s.name && !!x.statTrak === !!s.statTrak; });
+        if (exists) { toast('Уже в кейсе'); return; }
         editing.items.push(JSON.parse(JSON.stringify(s)));
         renderCaseItems(); toast('Добавлен: ' + s.name);
       };

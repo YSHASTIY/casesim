@@ -86,11 +86,25 @@ textarea { width: 100%; min-height: 120px; resize: vertical; margin: 10px 0; fon
 .calc-price b { color: var(--gold); }
 .norm-note { margin-bottom: 10px; }
 .modal-actions { display: flex; gap: 10px; margin-top: 18px; }
-.picker-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; max-height: 60vh; overflow-y: auto; }
+.picker-card { width: 1040px; }
+.picker-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0 12px; }
+.picker-head .admin-search { flex: 1; min-width: 220px; }
+.picker-body { display: grid; grid-template-columns: 260px 1fr; gap: 16px; }
+.picker-filters { max-height: 62vh; overflow-y: auto; padding-right: 6px; border-right: 1px solid var(--line); }
+.filter-group { margin-bottom: 14px; }
+.filter-group h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.filter-opts { display: flex; flex-direction: column; gap: 4px; }
+.filter-opts.scroll { max-height: 220px; overflow-y: auto; }
+.filter-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.filter-opt input { margin: 0; }
+.picker-list { display: flex; flex-direction: column; gap: 6px; margin-top: 0; max-height: 62vh; overflow-y: auto; }
 .picker-item { display: grid; grid-template-columns: 50px 1fr auto; gap: 10px; align-items: center; padding: 8px 10px;
   border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
 .picker-item:hover { background: var(--surface2); }
 .picker-item img { width: 46px; height: 34px; object-fit: contain; }
 .picker-item small { color: var(--muted); display: block; }
+.st-badge { display: inline-block; background: #cf6a32; color: #fff; font-size: 10px; font-weight: 700;
+  padding: 1px 5px; border-radius: 4px; margin-right: 6px; vertical-align: middle; }
+@media (max-width: 900px) { .picker-body { grid-template-columns: 1fr; } .picker-filters { max-height: 200px; border-right: 0; border-bottom: 1px solid var(--line); } }
 .admin-userpill { color: var(--muted); font-size: 13px; }
 @media (max-width: 760px) { .admin-shell { grid-template-columns: 1fr; } .admin-tabs { flex-direction: row; flex-wrap: wrap; position: static; } .modal-grid { grid-template-columns: 1fr; } }

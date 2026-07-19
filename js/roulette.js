@@ -297,6 +297,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         function renderResults() {
           spinBtn.style.display = 'none';
+          roulettesContainer.classList.remove('multi');
           roulettesContainer.innerHTML = '';
           var grid = document.createElement('div');
           grid.className = 'results-grid';

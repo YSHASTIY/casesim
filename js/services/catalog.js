@@ -78,11 +78,27 @@
   }
 
   // ---- skin pool (Phase 2 extensible catalog) ------------------------------
-  // Collect every skin known to the site: from base cases + imported pool.
+  // Collect every item known to the site, deduped by (name + StatTrak):
+  //   1) items already placed in base cases,
+  //   2) the FULL shipped catalog (window.CRATE_SKIN_POOL, data/skins-pool.js) —
+  //      read directly rather than copied into localStorage (it is ~10MB and
+  //      would blow the storage quota),
+  //   3) extra skins the admin imported manually (localStorage POOL_KEY).
+  function shippedPool() {
+    try {
+      if (typeof window !== 'undefined' && Array.isArray(window.CRATE_SKIN_POOL)) return window.CRATE_SKIN_POOL;
+    } catch (e) {}
+    try {
+      if (typeof self !== 'undefined' && Array.isArray(self.CRATE_SKIN_POOL)) return self.CRATE_SKIN_POOL;
+    } catch (e) {}
+    return [];
+  }
+  function skinKey(s) { return (s.name || '') + (s.statTrak ? 'st' : ''); }
   function allSkins(base) {
     var seen = {}, out = [];
-    function add(s) { if (s && s.name && !seen[s.name]) { seen[s.name] = 1; out.push(s); } }
+    function add(s) { if (s && s.name && !seen[skinKey(s)]) { seen[skinKey(s)] = 1; out.push(s); } }
     (base && base.cases || []).forEach(function (c) { (c.items || []).forEach(add); });
+    shippedPool().forEach(add);
     getPool().forEach(add);
     return out;
   }
@@ -90,11 +106,14 @@
   function importSkins(list) {
     var pool = getPool();
     var seen = {};
-    pool.forEach(function (s) { seen[s.name] = 1; });
+    // Dedup against the manual pool AND the shipped catalog so re-imports of the
+    // full catalog are idempotent and never balloon localStorage.
+    pool.forEach(function (s) { seen[skinKey(s)] = 1; });
+    shippedPool().forEach(function (s) { seen[skinKey(s)] = 1; });
     var added = 0;
     (list || []).forEach(function (s) {
       var norm = normalizeSkin(s);
-      if (norm && !seen[norm.name]) { pool.push(norm); seen[norm.name] = 1; added++; }
+      if (norm && !seen[skinKey(norm)]) { pool.push(norm); seen[skinKey(norm)] = 1; added++; }
     });
     writeJSON(POOL_KEY, pool);
     return added;
@@ -110,10 +129,14 @@
       tier: tier,
       rarityName: s.rarityName || '',
       rarityColor: s.rarityColor || (Pricing.TIER_COLOR[tier] || '#5e98d9'),
+      category: s.category || 'weapon',
+      weapon: s.weapon || '',
+      statTrak: !!s.statTrak,
+      stattrakAvailable: !!s.stattrakAvailable,
       minPrice: Number(s.minPrice != null ? s.minPrice : price),
       weight: s.weight != null ? Number(s.weight) : undefined,
       active: s.active !== false,
-      dropVariant: s.dropVariant || { wear: s.wear || 'Field-Tested', marketHashName: s.name, price: price },
+      dropVariant: s.dropVariant || { wear: s.wear || '', marketHashName: s.name, price: price },
       marketUrl: s.marketUrl || ('https://market.csgo.com/en/?search=' + encodeURIComponent((s.name || '').split(' | ')[0]))
     };
   }

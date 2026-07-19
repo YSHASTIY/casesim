@@ -140,5 +140,53 @@ section('catalog');
   ok('deleteCase removes case', Catalog.merge(base).cases.length === 0);
 })();
 
+// ---------------- FULL CATALOG / FILTER METADATA ----------------
+section('catalog — full pool + filter metadata');
+(function () {
+  Catalog._setStore(memStore());
+  // Simulate the shipped catalog (data/skins-pool.js -> window/self.CRATE_SKIN_POOL).
+  // In Node `self` isn't a global by default; catalog.js reads window/self, so
+  // expose one for the test.
+  if (typeof global.self === 'undefined') global.self = global;
+  var globalObj = global.self;
+  globalObj.CRATE_SKIN_POOL = [
+    { id: 'a1', name: 'AK-47 | Candy Apple', category: 'weapon', weapon: 'AK-47', tier: 'restricted', statTrak: false, dropVariant: { wear: 'FT', price: 100 } },
+    { id: 'a2', name: 'AK-47 | Candy Apple', category: 'weapon', weapon: 'AK-47', tier: 'restricted', statTrak: true, dropVariant: { wear: 'FT', price: 250 } },
+    { id: 'g1', name: 'Glock-18 | Candy Apple', category: 'weapon', weapon: 'Glock-18', tier: 'milspec', statTrak: false, dropVariant: { wear: 'FT', price: 90 } },
+    { id: 'c1', name: 'Prisma Case', category: 'case', weapon: '', tier: 'milspec', statTrak: false, dropVariant: { wear: '', price: 30 } },
+    { id: 's1', name: 'Sticker | Candy Apples', category: 'sticker', weapon: '', tier: 'covert', statTrak: false, dropVariant: { wear: '', price: 4 } }
+  ];
+  var base = { cases: [], drops: [] };
+  var all = Catalog.allSkins(base);
+  ok('shipped catalog visible via allSkins', all.length === 5);
+  ok('StatTrak counts as a distinct variant (name+ST dedup)',
+    all.filter(function (s) { return s.name === 'AK-47 | Candy Apple'; }).length === 2);
+
+  var apples = all.filter(function (s) { return s.name.toLowerCase().indexOf('candy apple') >= 0; });
+  ok('search "candy apple" returns all weapons + sticker (>=4)', apples.length >= 4);
+  ok('cases appear in the pool', all.some(function (s) { return s.category === 'case'; }));
+
+  // Combined filter: text "apple" + weapon AK-47 + StatTrak No  → exactly the plain AK.
+  function combined(s) {
+    return s.name.toLowerCase().indexOf('apple') >= 0 && s.weapon === 'AK-47' && s.statTrak === false;
+  }
+  var res = all.filter(combined);
+  ok('combined filter (text+weapon+StatTrak) narrows correctly',
+    res.length === 1 && res[0].id === 'a1');
+
+  // Re-importing the shipped catalog must be idempotent (no localStorage bloat).
+  var added = Catalog.importSkins(globalObj.CRATE_SKIN_POOL);
+  ok('re-import of shipped catalog is idempotent', added === 0 && Catalog.getPool().length === 0);
+
+  // Case-in-case: a case used as a case item is just an inventory-style item;
+  // it carries a dropVariant so opening never recurses / breaks.
+  var caseItem = all.find(function (s) { return s.category === 'case'; });
+  ok('case item is priceable (recursion-safe as loot)', Pricing.itemPrice(caseItem) === 30);
+  var nested = Pricing.metrics([caseItem, all[0]]);
+  ok('case-containing-case metrics compute without error', typeof nested.ev === 'number' && isFinite(nested.ev));
+
+  globalObj.CRATE_SKIN_POOL = undefined;
+})();
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

@@ -1,17 +1,26 @@
 #!/usr/bin/env python3
 """
-Генератор data/items.json для статического сайта кейсов CRATE.
+Генератор data/items.json + data/skins-pool.json для статического сайта CRATE.
 
 Источники:
   - Цены:  https://market.csgo.com/api/v2/prices/RUB.json  (без ключа, RUB)
-  - Скины: https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/skins.json
-           (картинки, редкость, износы, категория)
+  - Предметы: https://github.com/ByMykel/CSGO-API (en) — картинки, редкость,
+    износы, категория. Тянем НЕ только оружейные скины, но ВЕСЬ каталог CS2:
+    оружие, ножи, перчатки, наклейки, брелоки, нашивки, значки (пины) и кейсы.
 
 Прямой браузерный fetch цен блокируется CORS, поэтому цены парсятся здесь
-(в GitHub Action раз в сутки) и кладутся в data/items.json, который сайт
-грузит как обычный файл (same-origin).
+(в GitHub Action раз в сутки) и кладутся в data/*, которые сайт грузит как
+обычные файлы (same-origin).
 
 Только стандартная библиотека — работает локально и в CI.
+
+Результат:
+  - data/items.json / data.js       — 5 витринных кейсов (как раньше).
+  - data/skins-pool.json / .js      — ПОЛНЫЙ каталог всех предметов CS2 для
+    админки. Каждый предмет несёт метаданные для фильтрации: category
+    (weapon|knife|gloves|sticker|charm|patch|pin|case), weapon (базовый предмет),
+    tier/rarity, statTrak (для оружия/ножей генерируется отдельный ST-вариант),
+    image, price, marketUrl.
 """
 import json
 import os
@@ -23,7 +32,16 @@ import urllib.parse
 from datetime import datetime, timezone
 
 PRICES_URL = "https://market.csgo.com/api/v2/prices/RUB.json"
-SKINS_URL = "https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/skins.json"
+API_BASE = "https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/"
+SKINS_URL = API_BASE + "skins.json"
+# Дополнительные каталоги CS2 для полного пула админки.
+EXTRA_SOURCES = {
+    "stickers":     API_BASE + "stickers.json",
+    "keychains":    API_BASE + "keychains.json",   # брелоки / charms
+    "patches":      API_BASE + "patches.json",     # нашивки
+    "collectibles": API_BASE + "collectibles.json",  # значки (type == "Pin")
+    "crates":       API_BASE + "crates.json",      # кейсы / капсулы
+}
 UA = "Mozilla/5.0 (CRATE-cases-generator)"
 OUT = os.path.join(os.path.dirname(__file__), "..", "data", "items.json")
 
@@ -79,8 +97,48 @@ def market_url(base_name):
     return "https://market.csgo.com/en/?search=" + urllib.parse.quote(base_name)
 
 
-def build_pool(skins, prices):
-    """Скины с хотя бы одним plain (без StatTrak/Souvenir) ценовым вариантом."""
+# --- Полный каталог: соответствие редкость→тир и определение категории --------
+# Тир управляет весом ролла/ценой (в приложении всего 5 тиров). Отображаемые
+# rarityName/rarityColor берём из источника как есть — они точнее.
+# Ключ — базовый rarity id ByMykel (без суффиксов _weapon/_character).
+RARITY_TO_TIER = {
+    "rarity_default":    "milspec",
+    "rarity_common":     "milspec",   # Consumer / Base Grade
+    "rarity_uncommon":   "milspec",   # Industrial
+    "rarity_rare":       "milspec",   # Mil-Spec / High Grade
+    "rarity_mythical":   "restricted",  # Restricted / Remarkable
+    "rarity_legendary":  "classified",  # Classified / Exotic
+    "rarity_ancient":    "covert",    # Covert / Extraordinary
+    "rarity_contraband": "rare",      # Contraband (gold)
+    "rarity_immortal":   "rare",      # Exceedingly rare (gold, ножи)
+}
+
+
+def base_rarity_id(rar_id):
+    rid = rar_id or ""
+    for suf in ("_weapon", "_character"):
+        if rid.endswith(suf):
+            rid = rid[: -len(suf)]
+    return rid
+
+
+def tier_for(rar_id, category):
+    if category in ("knife", "gloves"):
+        return "rare"  # ножи/перчатки — золото, как ★ в исходном коде
+    return RARITY_TO_TIER.get(base_rarity_id(rar_id), "milspec")
+
+
+def skin_category(skin):
+    cat = (skin.get("category") or {}).get("name", "")
+    if cat == "Knives":
+        return "knife"
+    if cat == "Gloves":
+        return "gloves"
+    return "weapon"
+
+
+def build_price_index(prices):
+    """market_hash_name -> {price, volume} для всех ценовых вариантов (>0)."""
     idx = {}
     for it in prices.get("items", []):
         mh = it.get("market_hash_name", "")
@@ -90,12 +148,140 @@ def build_pool(skins, prices):
             continue
         if price <= 0:
             continue
-        vol = 0
         try:
             vol = int(it.get("volume", 0) or 0)
         except (TypeError, ValueError):
             vol = 0
         idx[mh] = {"price": price, "volume": vol}
+    return idx
+
+
+def _priced_variant(idx, market_hash):
+    """Вернуть {price, volume} по market_hash_name или None."""
+    return idx.get(market_hash)
+
+
+def build_full_catalog(sources, idx):
+    """Собрать ПОЛНЫЙ пул предметов CS2 для админки (все категории).
+
+    Возвращает плоский список в формате пула админки. Для оружия/ножей с
+    доступным StatTrak добавляется отдельный ST-вариант (как на маркете).
+    """
+    out = []
+    seen = set()  # по (name, statTrak) чтобы не плодить дубликаты
+
+    def push(item):
+        key = (item["name"], item.get("statTrak", False))
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(item)
+
+    def make(name, image, rar, category, weapon="", stattrak_avail=False,
+             st=False, wear=None, market_hash=None, base_search=None):
+        tier = tier_for((rar or {}).get("id"), category)
+        disp_name = ("StatTrak™ " + name) if st else name
+        mh = market_hash or (disp_name + (" (" + wear + ")" if wear else ""))
+        priced = _priced_variant(idx, mh)
+        price = round(priced["price"], 2) if priced else 0.0
+        vol = priced["volume"] if priced else 0
+        return {
+            "id": None,  # присвоим ниже детерминированно
+            "name": disp_name,
+            "image": image or "",
+            "tier": tier,
+            "rarityName": (rar or {}).get("name", ""),
+            "rarityColor": (rar or {}).get("color", "") or TIERS.get(tier, {}).get("color", "#5e98d9"),
+            "category": category,
+            "weapon": weapon or "",
+            "statTrak": bool(st),
+            "stattrakAvailable": bool(stattrak_avail),
+            "price": price,
+            "minPrice": price,
+            "wear": wear or "",
+            "dropVariant": {"wear": wear or "", "marketHashName": mh, "price": price, "volume": vol},
+            "marketUrl": market_url(base_search or name),
+        }
+
+    # ---- Оружие / ножи / перчатки (skins.json) ----
+    for s in sources.get("skins", []):
+        category = skin_category(s)
+        base = s.get("name", "")
+        if not base:
+            continue
+        weapon = (s.get("weapon") or {}).get("name", "")
+        rar = s.get("rarity") or {}
+        image = s.get("image")
+        st_avail = bool(s.get("stattrak"))
+        # Выбираем «износ для показа»: предпочитаем FT, иначе первый доступный.
+        wears = [w.get("name") for w in (s.get("wears") or []) if w.get("name")]
+        wear = None
+        for pref in ("Field-Tested", "Minimal Wear", "Factory New", "Well-Worn", "Battle-Scarred"):
+            if pref in wears:
+                wear = pref
+                break
+        if wear is None and wears:
+            wear = wears[0]
+        push(make(base, image, rar, category, weapon=weapon,
+                  stattrak_avail=st_avail, st=False, wear=wear, base_search=base))
+        # Отдельный StatTrak-вариант (только оружие/ножи), как на маркете.
+        if st_avail and category in ("weapon", "knife"):
+            push(make(base, image, rar, category, weapon=weapon,
+                      stattrak_avail=True, st=True, wear=wear, base_search=base))
+
+    # ---- Наклейки ----
+    for s in sources.get("stickers", []):
+        name = s.get("name")
+        if not name:
+            continue
+        push(make(name, s.get("image"), s.get("rarity") or {}, "sticker",
+                  market_hash=s.get("market_hash_name") or name, base_search=name))
+
+    # ---- Брелоки (charms) ----
+    for s in sources.get("keychains", []):
+        name = s.get("name")
+        if not name:
+            continue
+        push(make(name, s.get("image"), s.get("rarity") or {}, "charm",
+                  market_hash=s.get("market_hash_name") or name, base_search=name))
+
+    # ---- Нашивки (patches) ----
+    for s in sources.get("patches", []):
+        name = s.get("name")
+        if not name:
+            continue
+        push(make(name, s.get("image"), s.get("rarity") or {}, "patch",
+                  market_hash=s.get("market_hash_name") or name, base_search=name))
+
+    # ---- Значки / пины (collectibles, type == "Pin") ----
+    for s in sources.get("collectibles", []):
+        if s.get("type") != "Pin":
+            continue
+        name = s.get("name")
+        if not name:
+            continue
+        push(make(name, s.get("image"), s.get("rarity") or {}, "pin",
+                  market_hash=s.get("market_hash_name") or name, base_search=name))
+
+    # ---- Кейсы / капсулы (crates) ----
+    for s in sources.get("crates", []):
+        name = s.get("name")
+        if not name:
+            continue
+        push(make(name, s.get("image"), s.get("rarity") or {}, "case",
+                  market_hash=s.get("market_hash_name") or name, base_search=name))
+
+    # Детерминированные id (стабильны между прогонами при том же имени/варианте).
+    import hashlib
+    for it in out:
+        h = hashlib.md5((it["name"] + ("|st" if it["statTrak"] else "")).encode("utf-8")).hexdigest()[:12]
+        it["id"] = "item-" + h
+    return out
+
+
+def build_pool(skins, prices):
+    """Скины с хотя бы одним plain (без StatTrak/Souvenir) ценовым вариантом."""
+    idx = build_price_index(prices)
 
     pool = []  # list of items per tier
     for s in skins:
@@ -247,6 +433,17 @@ def main():
     skins = fetch_json(SKINS_URL)
     print("  skins:", len(skins), flush=True)
 
+    # Полный каталог CS2 (все категории) — best-effort: если какой-то источник
+    # недоступен, продолжаем с тем, что есть.
+    sources = {"skins": skins}
+    for key, url in EXTRA_SOURCES.items():
+        try:
+            sources[key] = fetch_json(url)
+            print("  {}: {}".format(key, len(sources[key])), flush=True)
+        except Exception as e:
+            sources[key] = []
+            print("  {} FAILED ({}) — пропускаем".format(key, e), file=sys.stderr, flush=True)
+
     pool = build_pool(skins, prices)
     by_tier = {}
     for it in pool:
@@ -287,18 +484,17 @@ def main():
         f.write(";\n")
     size_js = os.path.getsize(js_path)
 
-    # Phase 2 — extensible seed: full priced skin pool for admin import.
-    # data/skins-pool.json is a flat array in the admin import format
-    # ({name, tier, price, image, wear, rarityName, marketUrl, ...}), covering
-    # EVERY priced skin we could resolve (not just the 5 curated cases).
+    # Phase 2 — полный каталог CS2 для админки. data/skins-pool.json — плоский
+    # массив ВСЕХ предметов (оружие, ножи, перчатки, наклейки, брелоки, нашивки,
+    # значки, кейсы) с метаданными для фильтрации (category, weapon, statTrak,
+    # tier/rarity). Цены проставлены там, где нашлись на market.csgo.com.
+    idx = build_price_index(prices)
+    pool_export = build_full_catalog(sources, idx)
+    from collections import Counter
+    print("  full catalog: {} items by category {}".format(
+        len(pool_export), dict(Counter(i["category"] for i in pool_export))), flush=True)
+    print("  priced items: {}".format(sum(1 for i in pool_export if i["price"] > 0)), flush=True)
     pool_path = os.path.join(os.path.dirname(OUT), "skins-pool.json")
-    pool_export = [{
-        "id": it["id"], "name": it["name"], "image": it["image"], "tier": it["tier"],
-        "rarityName": it["rarityName"], "rarityColor": it["rarityColor"],
-        "price": it["dropVariant"]["price"], "minPrice": it["minPrice"],
-        "wear": it["dropVariant"]["wear"], "dropVariant": it["dropVariant"],
-        "marketUrl": it["marketUrl"],
-    } for it in pool]
     with open(pool_path, "w", encoding="utf-8") as f:
         json.dump(pool_export, f, ensure_ascii=False, separators=(",", ":"))
     # data/skins-pool.js — то же, что skins-pool.json, но как JS-переменная, чтобы

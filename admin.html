@@ -180,11 +180,18 @@
 
   <!-- Skin picker modal -->
   <div class="admin-modal" id="skinPicker" hidden>
-    <div class="admin-modal-card">
+    <div class="admin-modal-card picker-card">
       <button class="modal-close" id="skinPickerClose"><i class="fa-solid fa-xmark"></i></button>
-      <h2>Добавить скин в кейс</h2>
-      <label class="admin-search"><i class="fa-solid fa-magnifying-glass"></i><input id="pickerSearch" placeholder="Поиск"></label>
-      <div class="picker-list" data-picker-list></div>
+      <h2>Добавить предмет в кейс</h2>
+      <div class="picker-head">
+        <label class="admin-search"><i class="fa-solid fa-magnifying-glass"></i><input id="pickerSearch" placeholder="Поиск по названию"></label>
+        <button class="button ghost mini" id="pickerReset"><i class="fa-solid fa-rotate-left"></i> Сбросить фильтры</button>
+        <small class="muted" data-picker-count></small>
+      </div>
+      <div class="picker-body">
+        <aside class="picker-filters" data-picker-filters></aside>
+        <div class="picker-list" data-picker-list></div>
+      </div>
     </div>
   </div>
 
