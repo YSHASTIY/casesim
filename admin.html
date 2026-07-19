@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Crate — Админ-панель</title>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="index.html">CR<span>A</span>TE</a>
+    <nav>
+      <a href="index.html">Сайт</a>
+      <a class="active" href="admin.html">Админ</a>
+    </nav>
+    <div class="header-actions">
+      <span class="admin-userpill" data-admin-user></span>
+      <button class="button ghost" id="logoutBtn" style="display:none"><i class="fa-solid fa-right-from-bracket"></i> Выйти</button>
+    </div>
+  </header>
+
+  <!-- Login gate -->
+  <div class="admin-login" id="loginGate">
+    <form class="admin-login-card" id="loginForm">
+      <h1><i class="fa-solid fa-lock"></i> Вход в админ-панель</h1>
+      <p class="muted">Введите пароль администратора.</p>
+      <input type="password" id="adminPass" placeholder="Пароль" autocomplete="current-password" required>
+      <button class="button primary" type="submit">Войти</button>
+      <small class="login-error" id="loginError"></small>
+    </form>
+  </div>
+
+  <!-- Panel -->
+  <main class="admin-shell inner" id="adminShell" hidden>
+    <aside class="admin-tabs">
+      <button class="admin-tab active" data-tab="dashboard"><i class="fa-solid fa-gauge-high"></i> Дашборд</button>
+      <button class="admin-tab" data-tab="cases"><i class="fa-solid fa-box-open"></i> Кейсы</button>
+      <button class="admin-tab" data-tab="skins"><i class="fa-solid fa-gun"></i> Скины</button>
+      <button class="admin-tab" data-tab="profit"><i class="fa-solid fa-scale-balanced"></i> Контроль выигрышей</button>
+      <button class="admin-tab" data-tab="audit"><i class="fa-solid fa-clipboard-list"></i> Аудит</button>
+      <button class="admin-tab" data-tab="tools"><i class="fa-solid fa-screwdriver-wrench"></i> Импорт/Экспорт</button>
+    </aside>
+
+    <section class="admin-content">
+      <!-- DASHBOARD -->
+      <div class="admin-pane" data-pane="dashboard">
+        <h2>Дашборд</h2>
+        <div class="stat-grid" data-dashboard-stats></div>
+        <div class="admin-card">
+          <h3>Средняя доходность казино (RTP) по кейсам</h3>
+          <div class="bar-chart" data-rtp-chart></div>
+        </div>
+      </div>
+
+      <!-- CASES -->
+      <div class="admin-pane" data-pane="cases" hidden>
+        <div class="pane-head">
+          <h2>Кейсы</h2>
+          <button class="button primary" id="newCaseBtn"><i class="fa-solid fa-plus"></i> Новый кейс</button>
+        </div>
+        <div class="case-admin-list" data-case-list></div>
+      </div>
+
+      <!-- SKINS -->
+      <div class="admin-pane" data-pane="skins" hidden>
+        <div class="pane-head">
+          <h2>Скины <small class="muted" data-skin-count></small></h2>
+          <div class="pane-head-actions">
+            <button class="button ghost" id="reloadPoolBtn"><i class="fa-solid fa-rotate"></i> Загрузить все скины</button>
+            <label class="admin-search"><i class="fa-solid fa-magnifying-glass"></i><input id="skinSearch" placeholder="Поиск скина"></label>
+          </div>
+        </div>
+        <small class="muted" data-pool-status></small>
+        <div class="admin-table-wrap">
+          <table class="admin-table" data-skin-table></table>
+        </div>
+      </div>
+
+      <!-- PROFIT CONTROL -->
+      <div class="admin-pane" data-pane="profit" hidden>
+        <h2>Контроль выигрышей</h2>
+        <div class="admin-card">
+          <div class="field">
+            <label>Режим</label>
+            <select id="pfMode">
+              <option value="off">Выключен (честные шансы)</option>
+              <option value="manual">Ручной (флаги по игрокам)</option>
+              <option value="auto">Авто (детерминированные группы на день)</option>
+            </select>
+          </div>
+          <div class="field"><label>Доля игроков, кому можно уходить в плюс сегодня (%)</label>
+            <input type="number" id="pfPercent" min="0" max="100" step="1"></div>
+          <div class="field"><label>Множитель максимального баланса (cap = стартовый × N)</label>
+            <input type="number" id="pfRatio" min="1" step="0.05"></div>
+          <div class="field"><label>Либо фикс. прибавка к балансу (₽, приоритет над множителем; 0 = выкл)</label>
+            <input type="number" id="pfAmount" min="0" step="100"></div>
+          <div class="field"><label>Абсолютный дневной потолок баланса (₽, 0 = выкл)</label>
+            <input type="number" id="pfDailyCap" min="0" step="100"></div>
+          <button class="button primary" id="pfSave"><i class="fa-solid fa-floppy-disk"></i> Сохранить настройки</button>
+          <p class="muted pf-explain" data-pf-explain></p>
+        </div>
+        <div class="admin-card" id="manualCard">
+          <h3>Ручные флаги игроков</h3>
+          <p class="muted">Ваш ID: <code data-my-uid></code>. Добавьте ID игрока и разрешение.</p>
+          <div class="manual-add">
+            <input id="manualUid" placeholder="user id">
+            <select id="manualAllow"><option value="true">Можно в плюс</option><option value="false">Нельзя в плюс</option></select>
+            <button class="button ghost" id="manualAddBtn">Добавить</button>
+          </div>
+          <div data-manual-list></div>
+        </div>
+      </div>
+
+      <!-- AUDIT -->
+      <div class="admin-pane" data-pane="audit" hidden>
+        <div class="pane-head">
+          <h2>Аудит решений контроля</h2>
+          <button class="button ghost" id="clearAuditBtn"><i class="fa-solid fa-trash"></i> Очистить</button>
+        </div>
+        <div class="admin-table-wrap"><table class="admin-table" data-audit-table></table></div>
+      </div>
+
+      <!-- TOOLS -->
+      <div class="admin-pane" data-pane="tools" hidden>
+        <h2>Импорт / Экспорт</h2>
+        <div class="admin-card">
+          <h3>Импорт скинов (Phase 2)</h3>
+          <p class="muted">JSON-массив объектов. Минимум: <code>name</code>, <code>tier</code>, <code>price</code>. Полный формат — в README.</p>
+          <textarea id="importSkinsText" placeholder='[{"name":"AK-47 | Redline","tier":"classified","price":1200,"image":"https://...","wear":"Field-Tested"}]'></textarea>
+          <button class="button primary" id="importSkinsBtn">Импортировать скины</button>
+          <small data-import-result></small>
+        </div>
+        <div class="admin-card">
+          <h3>Экспорт / импорт конфигурации</h3>
+          <p class="muted">Сохраняет overlay (кейсы) и пул скинов.</p>
+          <button class="button ghost" id="exportBtn"><i class="fa-solid fa-download"></i> Экспорт JSON</button>
+          <button class="button ghost" id="importConfigBtn"><i class="fa-solid fa-upload"></i> Импорт из поля ниже</button>
+          <button class="button ghost danger" id="resetOverlayBtn"><i class="fa-solid fa-rotate-left"></i> Сбросить все правки</button>
+          <textarea id="configText" placeholder="Вставьте экспортированный JSON сюда для импорта"></textarea>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Case editor modal -->
+  <div class="admin-modal" id="caseModal" hidden>
+    <div class="admin-modal-card">
+      <button class="modal-close" id="caseModalClose"><i class="fa-solid fa-xmark"></i></button>
+      <h2 data-modal-title>Кейс</h2>
+      <div class="modal-grid">
+        <div class="field"><label>ID</label><input id="cId"></div>
+        <div class="field"><label>Название</label><input id="cName"></div>
+        <div class="field"><label>Иконка (fa-*)</label><input id="cIcon" placeholder="fa-bolt"></div>
+        <div class="field"><label>Цвет</label><input id="cColor" type="color"></div>
+        <div class="field"><label>Описание</label><input id="cDesc"></div>
+        <div class="field checkbox"><label><input type="checkbox" id="cPublished"> Опубликован</label></div>
+        <div class="field checkbox"><label><input type="checkbox" id="cManualPrice"> Ручная цена (override)</label></div>
+        <div class="field"><label>Цена ₽ (если ручная)</label><input id="cPrice" type="number" min="0"></div>
+      </div>
+      <div class="calc-price">Расчётная цена: <b data-calc-price>—</b> · EV <span data-calc-ev>—</span> · RTP <span data-calc-rtp>—</span></div>
+
+      <div class="pane-head">
+        <h3>Состав кейса</h3>
+        <div>
+          <button class="button ghost" id="autoAddBtn"><i class="fa-solid fa-wand-magic-sparkles"></i> Авто-набор</button>
+          <button class="button ghost" id="addSkinToCaseBtn"><i class="fa-solid fa-plus"></i> Добавить скин</button>
+        </div>
+      </div>
+      <div class="norm-note muted" data-norm-note></div>
+      <div class="admin-table-wrap"><table class="admin-table" data-case-items></table></div>
+      <div class="modal-actions">
+        <button class="button primary" id="saveCaseBtn"><i class="fa-solid fa-floppy-disk"></i> Сохранить кейс</button>
+        <button class="button ghost" id="cancelCaseBtn">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Skin picker modal -->
+  <div class="admin-modal" id="skinPicker" hidden>
+    <div class="admin-modal-card">
+      <button class="modal-close" id="skinPickerClose"><i class="fa-solid fa-xmark"></i></button>
+      <h2>Добавить скин в кейс</h2>
+      <label class="admin-search"><i class="fa-solid fa-magnifying-glass"></i><input id="pickerSearch" placeholder="Поиск"></label>
+      <div class="picker-list" data-picker-list></div>
+    </div>
+  </div>
+
+  <div class="toast"></div>
+
+  <script src="data/data.js"></script>
+  <script src="data/skins-pool.js"></script>
+  <script src="js/admin-config.js"></script>
+  <script src="js/admin-auth.js"></script>
+  <script src="js/services/pricing.js"></script>
+  <script src="js/services/profit.js"></script>
+  <script src="js/services/drop.js"></script>
+  <script src="js/services/catalog.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>
