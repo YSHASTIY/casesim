@@ -1144,7 +1144,7 @@ footer div {
 .roulette {
   display: flex;
   gap: 10px;
-  transition: transform 5s cubic-bezier(.12, .73, .05, 1);
+  transition: transform 3.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   will-change: transform;
 }
 
@@ -2504,7 +2504,7 @@ footer div {
 .roulettes-container .roulette {
   display: flex;
   gap: 10px;
-  transition: transform 5s cubic-bezier(.12, .73, .05, 1);
+  transition: transform 3.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   will-change: transform;
   height: 145px;
 }

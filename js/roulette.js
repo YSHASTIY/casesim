@@ -286,8 +286,13 @@ document.addEventListener('DOMContentLoaded', function () {
           var lane = roulettesContainer.querySelectorAll('.roulette')[index];
           var laneWidth = lane && lane.parentElement ? lane.parentElement.clientWidth : 760;
           var landingIndex = (CYCLES + LAND_CYCLE_START + 1) * skins.length + (chosenIndices[index] || 0);
-          var base = landingIndex * (ITEM_WIDTH + ITEM_GAP);
-          return base - (laneWidth / 2 - ITEM_WIDTH / 2) + 10;
+          var itemLeft = landingIndex * (ITEM_WIDTH + ITEM_GAP);
+          // Маркер стоит по центру панели. Чтобы стрелка останавливалась "как на
+          // настоящей рулетке" — не строго по центру скина, а в случайной точке
+          // в пределах выигравного предмета (внутри его ширины, не выходя за края).
+          var half = ITEM_WIDTH / 2;
+          var jitter = (Math.random() * 2 - 1) * (half - 12); // ±53px, остаёмся внутри скина
+          return (itemLeft + half + jitter) - laneWidth / 2;
         }
 
         function renderResults() {
@@ -393,19 +398,41 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
           initRoulettes(currentCount);
           var strips = roulettesContainer.querySelectorAll('.roulette');
+          // Плавная рулетка как на настоящих сайтах: ~3.4с всего, первые ~2.5с —
+          // быстрое вращение с примерно постоянной скоростью, затем плавное
+          // замедление (ease-out) до полной остановки. Точка остановки случайная
+          // в пределах выигравшего скина (см. getLandingOffset).
+          var SPIN_MS = 3400;
+          var DECEL_AT = 0.73;            // замедление начинается ~на 2.48с
+          // FAST_FRAC подбираем так, чтобы скорость в конце быстрой фазы равнялась
+          // начальной скорости easeOutQuad на фазе замедления — тогда на стыке нет
+          // рывка. Для easeOutQuad (производная = 2×средняя) это: 2*D/(1+D).
+          var FAST_FRAC = 2 * DECEL_AT / (1 + DECEL_AT); // ≈0.844
+          var DECEL_EASE = 'cubic-bezier(0.25, 0.46, 0.45, 0.94)'; // easeOutQuad
           strips.forEach(function (strip, index) {
-            var targetOffset = getLandingOffset(index);
+            var targetOffset = Math.max(0, getLandingOffset(index));
+            var fastOffset = targetOffset * FAST_FRAC;
             strip.style.transition = 'none';
             strip.style.transform = 'translateX(0)';
-            requestAnimationFrame(function () {
-              strip.style.transition = 'transform 5.2s cubic-bezier(0.2, 0, 0.3, 1)';
-              strip.style.transform = 'translateX(-' + Math.max(0, targetOffset) + 'px)';
-            });
+            // force reflow, иначе браузер схлопнет reset и анимацию в один кадр
+            void strip.offsetWidth;
+            if (typeof strip.animate === 'function') {
+              var anim = strip.animate([
+                { transform: 'translateX(0)', offset: 0, easing: 'linear' },
+                { transform: 'translateX(-' + fastOffset + 'px)', offset: DECEL_AT, easing: DECEL_EASE },
+                { transform: 'translateX(-' + targetOffset + 'px)', offset: 1 }
+              ], { duration: SPIN_MS, easing: 'linear', fill: 'forwards' });
+              anim.onfinish = function () { strip.style.transform = 'translateX(-' + targetOffset + 'px)'; };
+            } else {
+              // Фолбэк: одна ease-out анимация (старые браузеры без WAAPI)
+              strip.style.transition = 'transform ' + SPIN_MS + 'ms ' + DECEL_EASE;
+              strip.style.transform = 'translateX(-' + targetOffset + 'px)';
+            }
           });
           setTimeout(function () {
             renderResults();
             if (results.some(function (w) { return w.tier === 'rare' || w.tier === 'covert'; })) confettiBurst(roulettesContainer);
-          }, 5200);
+          }, SPIN_MS + 120);
         }
       });
     }
